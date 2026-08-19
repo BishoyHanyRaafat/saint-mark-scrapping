@@ -1,9 +1,8 @@
-# pip install beautifulsoup4 requests python-dotenv --break-system-packages
+# pip install requests python-dotenv --break-system-packages
 import os
 import sys
 
 import requests
-from bs4 import BeautifulSoup
 import time
 import traceback
 
@@ -12,14 +11,8 @@ fog_number = int(os.environ.get("FOG_NUMBER", "6") or "6")
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHAT_ID = os.environ["CHAT_ID"]
 REGISTRY_MESSAGE_ID = os.environ.get("REGISTRY_MESSAGE_ID", "").strip()
-
-headers = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/139.0.0.0 Safari/537.36"
-    )
-}
+WORKER_URL = os.environ["WORKER_URL"].rstrip("/")
+WORKER_SECRET = os.environ["WORKER_SECRET"]
 
 
 def telegram_api(method, **fields):
@@ -50,7 +43,7 @@ def fetch_registry_text():
             "sendMessage",
             chat_id=CHAT_ID,
             text=(
-                f"� Registry message created (id={new_id}). "
+                f" Registry message created (id={new_id}). "
                 "Edit it in Telegram to add people, then set "
                 f"REGISTRY_MESSAGE_ID={new_id} in GitHub Actions variables."
             ),
@@ -88,112 +81,33 @@ for line in raw_people:
         }
     )
 
-print(f"Loaded {len(people)} people from environment variable.")
+print(f"Loaded {len(people)} people from registry message.")
 
-reg_url = f"https://mo2tmar-5edma.stmarkos.org/fog_registration_form?TravellerType=servent&fogNumber={fog_number}"
-check_url = "https://mo2tmar-5edma.stmarkos.org/"
+
+def worker_call(path, payload):
+    response = requests.post(
+        f"{WORKER_URL}{path}",
+        json=payload,
+        headers={"X-Worker-Secret": WORKER_SECRET},
+        timeout=30,
+    )
+    response.raise_for_status()
+    return response.json()
 
 
 def check_availability():
-    response = requests.get(check_url, headers=headers)
-
-    print(response.status_code)
-    print(response.text[:500])
-    response.raise_for_status()
-    soup = BeautifulSoup(response.text, "html.parser")
-
-    table = soup.find("table")
-
-    if not table:
-        raise ValueError("No table found in the HTML content.")
-
-    fog_map_number = {
-        1: "الفوج الاول",
-        2: "الفوج الثاني",
-        3: "الفوج الثالث",
-        4: "الفوج الرابع",
-        5: "الفوج الخامس",
-        6: "الفوج السادس",
-        7: "الفوج السابع",
-    }
-
-    for tr in table.find_all("tr"):
-        tds = tr.find_all("td")
-        if (
-            tds
-            and tds[0].text.strip() == fog_map_number[fog_number]
-            and tds[1].text.strip() == "يوجد اماكن"
-        ):
-            return True
-    return False
+    result = worker_call("/check", {"fogNumber": fog_number})
+    return bool(result.get("available"))
 
 
 def send_registration_request(person):
-    session = requests.Session()
-
-    response = session.get(reg_url, headers=headers)
-    response.raise_for_status()
-
-    soup = BeautifulSoup(response.text, "html.parser")
-
-    token = soup.find("input", {"name": "_token"})["value"]
-    from_options = [
-        option for option in soup.select("#fromDate option") if option.get("value")
-    ]
-    to_options = [
-        option for option in soup.select("#toDate option") if option.get("value")
-    ]
-
-    from_date = from_options[0]["value"]
-    to_date = to_options[-1]["value"]
-
-    print("from:", from_date)
-    print("to:", to_date)
-
-    data = {
-        "_token": token,
-        "fogNumber": str(fog_number),
-        "fromDate": from_date,
-        "toDate": to_date,
-        "transport": person["transport"],
-        "name": person["name"],
-        "nationalId": person["national_id"],
-        "phone": person["phone"],
-        "statues": person["statues"],
-        "osra": person["osra"],
-        "notes": person["notes"],
-        "brotherAndSisterName": "",
-        "brotherAndSisterNationalId": "",
-        "brotherAndSisterPhone": "",
-        "brotherAndSisterNotes": "",
-        "engagedName": "",
-        "engagedNationalId": "",
-        "engagedPhone": "",
-        "engagedNotes": "",
-        "marriedName": "",
-        "marriedNationalId": "",
-        "marriedPhone": "",
-        "marriedNotes": "",
-        "childrenLessThan2Count": "0",
-        "childrenLessThan8Count": "0",
-        "childrenMoreThan8Count": "0",
-        "childrenAgesField": "",
-        "familyName": "",
-        "familyNationalId": "",
-        "familyPhone": "",
-        "familyNotes": "",
-    }
-
-    response = session.post(
-        reg_url,
-        data=data,
-        headers={
-            "User-Agent": "Mozilla/5.0",
-            "Referer": reg_url,
-        },
+    result = worker_call(
+        "/register",
+        {"fogNumber": fog_number, "person": person},
     )
-
-    return response
+    if "error" in result:
+        raise RuntimeError(f"Worker error: {result['error']} ({result.get('detail')})")
+    return result
 
 
 def send_message(message: str):
@@ -242,17 +156,14 @@ def main():
             )
             return 1
 
-        print(response.status_code)
-        print(response.url)
-        print(response.text[:1000])
-
+        print(response)
         send_message(
             f"Registration response for {person['name']}: "
-            f"{response.status_code} - {response.url}\n"
-            f"{response.text[:1000]}"
+            f"{response.get('status')} - {response.get('url')}\n"
+            f"{response.get('body', '')[:1000]}"
         )
 
-        if response.status_code == 200:
+        if response.get("status") == 200:
             registered = people.pop(i)
             edit_registry_message()
             send_message(

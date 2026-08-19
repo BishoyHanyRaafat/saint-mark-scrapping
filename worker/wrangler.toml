@@ -1,0 +1,10 @@
+name = "saint-mark-scrapping"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+
+# Set via `wrangler secret put WORKER_SECRET` after first deploy.
+# Workers do not auto-load a default; the variable below is only a placeholder
+# that wrangler will reject until you set the real secret.
+#
+# [[unsafe.bindings]]
+# secret = "WORKER_SECRET"

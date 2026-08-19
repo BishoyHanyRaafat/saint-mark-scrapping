@@ -34,5 +34,7 @@ jobs:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
           FOG_NUMBER: ${{ vars.FOG_NUMBER }}
-          PEOPLE: ${{ secrets.PEOPLE }}
+          REGISTRY_MESSAGE_ID: ${{ vars.REGISTRY_MESSAGE_ID }}
+          WORKER_URL: ${{ secrets.WORKER_URL }}
+          WORKER_SECRET: ${{ secrets.WORKER_SECRET }}
         run: python saint-mark-scrapping.py

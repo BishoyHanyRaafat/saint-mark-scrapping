@@ -1,2 +1,4 @@
 __pycache__/
 update message.sh
+worker/node_modules/
+worker/.wrangler/
