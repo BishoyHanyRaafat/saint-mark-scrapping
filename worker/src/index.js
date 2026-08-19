@@ -136,14 +136,29 @@ async function checkAvailability(fogNumber) {
 
 async function registerPerson(fogNumber, person) {
   const regUrl = `${FOG_BASE}${REG_PATH}?TravellerType=servent&fogNumber=${fogNumber}`;
-  const cookies = [];
-  const setCookie = (resp) => {
-    const sc = resp.headers.get("set-cookie");
-    if (sc) cookies.push(sc.split(";")[0]);
+  const cookieJar = new Map();
+
+  const collectCookies = (resp) => {
+    const all = resp.headers.getAll ? resp.headers.getAll("set-cookie") : [];
+    for (const sc of all) {
+      const [pair] = sc.split(";");
+      const eq = pair.indexOf("=");
+      if (eq > 0) cookieJar.set(pair.slice(0, eq).trim(), pair);
+    }
   };
 
-  const getResp = await fetch(regUrl, { headers: BROWSER_HEADERS });
-  setCookie(getResp);
+  const cookieHeader = () => [...cookieJar.values()].join("; ");
+
+  // Seed the session by hitting the home page first so Laravel issues us
+  // a valid session cookie before we ask for the protected registration form.
+  const homeResp = await fetch(FOG_BASE + CHECK_PATH, { headers: BROWSER_HEADERS });
+  collectCookies(homeResp);
+  await homeResp.text();
+
+  const getResp = await fetch(regUrl, {
+    headers: { ...BROWSER_HEADERS, Cookie: cookieHeader() },
+  });
+  collectCookies(getResp);
   const html = await getResp.text();
   const { token, fromDate, toDate } = await parseForm(html);
 
@@ -163,16 +178,17 @@ async function registerPerson(fogNumber, person) {
       ...BROWSER_HEADERS,
       Referer: regUrl,
       "Content-Type": "application/x-www-form-urlencoded",
-      Cookie: cookies.join("; "),
+      Cookie: cookieHeader(),
     },
     body,
   });
+  collectCookies(postResp);
   const responseText = await postResp.text();
 
   return {
     status: postResp.status,
     url: postResp.url || regUrl,
-    body: responseText.slice(0, 2000),
+    body: responseText.slice(0, 3000),
   };
 }
 

@@ -1,6 +1,7 @@
 # pip install requests python-dotenv --break-system-packages
 import os
 import sys
+import json
 
 import requests
 import time
@@ -37,7 +38,7 @@ def fetch_registry_text():
     or an empty string if the message hasn't been seeded yet (in which case
     a fresh empty registry is created and the user is told its new id)."""
     if not REGISTRY_MESSAGE_ID:
-        sent = telegram_api("sendMessage", chat_id=CHAT_ID, text="# registry\n")
+        sent = telegram_api("sendMessage", chat_id=CHAT_ID, text="[]")
         new_id = sent["result"]["message_id"]
         telegram_api(
             "sendMessage",
@@ -48,7 +49,7 @@ def fetch_registry_text():
                 f"REGISTRY_MESSAGE_ID={new_id} in GitHub Actions variables."
             ),
         )
-        return ""
+        return "[]"
 
     fwd = telegram_api(
         "forwardMessage",
@@ -62,25 +63,36 @@ def fetch_registry_text():
     return text
 
 
-raw_people = fetch_registry_text().strip().splitlines()
-people = []
-for line in raw_people:
-    parts = line.split("|")
-    if len(parts) < 7:
-        print(f"Skipping malformed PEOPLE line: {line!r}")
-        continue
-    people.append(
-        {
-            "name": parts[0],
-            "osra": parts[1],
-            "transport": parts[2],
-            "national_id": parts[3],
-            "phone": parts[4],
-            "statues": parts[5],
-            "notes": parts[6],
-        }
-    )
+REQUIRED_FIELDS = (
+    "name",
+    "osra",
+    "transport",
+    "national_id",
+    "phone",
+    "statues",
+    "notes",
+)
 
+
+def load_people():
+    text = fetch_registry_text().strip() or "[]"
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as e:
+        raise RuntimeError(f"Registry message is not valid JSON: {e}")
+    if not isinstance(data, list):
+        raise RuntimeError("Registry must be a JSON array of person objects.")
+    people = []
+    for i, entry in enumerate(data):
+        if not isinstance(entry, dict):
+            print(f"Skipping non-object registry entry #{i}: {entry!r}")
+            continue
+        person = {field: str(entry.get(field, "")) for field in REQUIRED_FIELDS}
+        people.append(person)
+    return people
+
+
+people = load_people()
 print(f"Loaded {len(people)} people from registry message.")
 
 
@@ -120,12 +132,7 @@ def send_message(message: str):
 def edit_registry_message():
     if not REGISTRY_MESSAGE_ID:
         return
-    body = "# registry\n"
-    for p in people:
-        body += (
-            f"{p['name']}|{p['osra']}|{p['transport']}|"
-            f"{p['national_id']}|{p['phone']}|{p['statues']}|{p['notes']}\n"
-        )
+    body = json.dumps(people, ensure_ascii=False, separators=(",", ":"))
     telegram_api(
         "editMessageText",
         chat_id=CHAT_ID,
@@ -140,6 +147,7 @@ def main():
 
     if not available:
         print(f"Fog {fog_number} is not available yet.")
+        send_message(f"Fog {fog_number} is not available yet. Will check again later.")
         return 0
 
     send_message(f"Fog {fog_number} is available! Registering now...")
@@ -160,7 +168,7 @@ def main():
         send_message(
             f"Registration response for {person['name']}: "
             f"{response.get('status')} - {response.get('url')}\n"
-            f"{response.get('body', '')[:1000]}"
+            f"{response.get('body', '')[:3000]}"
         )
 
         if response.get("status") == 200:
