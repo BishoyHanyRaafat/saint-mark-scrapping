@@ -1,6 +1,5 @@
 # pip install requests python-dotenv --break-system-packages
 import os
-import sys
 import json
 
 import requests
@@ -194,7 +193,9 @@ def main():
 
 if __name__ == "__main__":
     try:
-        sys.exit(main())
+        for i in range(60):
+            main()
+            time.sleep(5)
     except Exception as e:
         send_message(f"Fatal error: {e}\n{traceback.format_exc()}")
         raise
