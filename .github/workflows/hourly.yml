@@ -1,8 +1,8 @@
 name: Hourly Saint Mark Scrapping
 
 on:
-  schedule:
-    - cron: "*/10 * * * *"
+  # schedule:
+  #  - cron: "*/10 * * * *"
   workflow_dispatch: # allow manual trigger from the Actions tab
 
 permissions:
